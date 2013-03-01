@@ -1,0 +1,131 @@
+#!/bin/bash
+#########################################################
+#   Filename   : btrfsrotate                            #
+#   Description:    Makes a btrfs snapshot rotation     #
+#                   as in logrotate                     #
+#########################################################
+
+PROGNAME="$(basename $0)"
+quiet=false
+
+set -u
+set -e
+
+# Prints help message
+function showhelp {
+    cat >&2 <<- EOF 
+Usage: $PROGNAME [OPTION] ...
+Options:
+    -b  btrfs directory to rotate
+    -c  max rotations to keep
+    -t  adds tag to snapshotname
+    -h  prints this help message.
+
+Example:
+    * Keep 12 snapshots rotations with the tag "monthly":
+    $PROGNAME -b /data -c 12 -t monthly 
+
+    * Keep 7 rotations with the tag daily":
+    $PROGNAME -b /data -c 7 -t "daily"
+EOF
+}
+
+# Prints log message to default output
+function log {
+    local level="$1"
+    local message="$2"
+
+    $quiet || echo "$(date +"%F %T" ) $PROGNAME: $message" 
+}
+
+function die {
+    local exitcode="$1"
+    local message="$2"
+
+    log "Error" "$message"
+
+    exit $exitcode
+}
+
+# Makes snapshots rotation
+function rotate {
+    local snaplocation="$1"
+    local volume="$2"
+    local maxrotations="$3"
+    local tag="$4"
+
+    local volumename=`basename $volume`
+
+
+    [ -d "$snaplocation" ] || \
+        mkdir $snaplocation || \
+        die "1" "Cannot create $snaplocation"
+
+    # Drops oldest max rotation:
+    [ -e $snaplocation/$volumename-$tag-$maxrotations ] && \
+        /sbin/btrfs subvolume delete $snaplocation/$volumename-$tag-$maxrotations
+
+    for i in `seq $maxrotations -1 1`
+    do
+        let "new=i+1"
+        [ -e $snaplocation/$volumename-$tag-$i ] && \
+            mv $snaplocation/$volumename-$tag-$i $snaplocation/$volumename-$tag-$new
+    done
+
+    return 0
+}
+
+# Makes snapshot
+function snapit {
+    local snaplocation="$1"
+    local volume="$2"
+    local tag="$3"
+
+    local volumename=`basename $volume`
+
+
+    [ ! -e "$snaplocation/$volumename-$tag-1" ] || \
+        die "2" "$snaplocation/$volumename-$tag-1 already exists"
+    /sbin/btrfs subvolume snapshot \
+        $volume $snaplocation/$volumename-$tag-1
+}
+
+directory="notset"
+count=10
+tag="default"
+
+destination=""
+destinationsubdir="./.snapshots"
+
+while getopts "b:c:t:d:qh" opt
+do
+    case $opt in
+        b)  directory="$OPTARG"
+            ;;
+        c)  count="$OPTARG"
+            ;;
+        t)  tag="$OPTARG"
+            ;;
+        d)  destination="$OPTARG"
+            ;;
+        q)  quiet=true
+            ;;
+        h)  showhelp
+            exit 1
+            ;;
+        *)  showhelp
+            exit 1
+            ;;
+    esac
+done  
+
+[ -n "$destination" ] || destination="$directory/$destinationsubdir"
+
+log "debug" "Saving snapshot to $directory"
+
+[ -n "$directory" ] || die 4 "Directory to snapshot not set."
+
+rotate "$destination" "$directory" "$count" "$tag"
+
+snapit "$destination" "$directory" "$tag"
+
