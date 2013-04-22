@@ -40,7 +40,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 22 16 * * *             root    for btfs in `/bin/mount | sed -n 's/.* on \(.*\) type btrfs.*/\1/p'`; do /usr/local/bin/btrfsrotate -q -b $btfs  -c 30 -t "daily"  > /dev/null ; done
 00 13 * * 1             root    for btfs in `/bin/mount | sed -n 's/.* on \(.*\) type btrfs.*/\1/p'`; do /usr/local/bin/btrfsrotate -q -b $btfs  -c 10 -t "Weekly" > /dev/null ; done
 00 13 1 * *             root    for btfs in `/bin/mount | sed -n 's/.* on \(.*\) type btrfs.*/\1/p'`; do /usr/local/bin/btrfsrotate -q -b $btfs  -c 12  -t "Monthly" > /dev/null ;   done
-``
+```
 
 List your snapshots:
 ```shell
