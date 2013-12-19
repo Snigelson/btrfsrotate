@@ -13,17 +13,27 @@ set -e
 
 # Prints help message
 function showhelp {
-    cat >&2 <<- EOF 
+    cat >&2 <<- EOF
 Usage: $PROGNAME [OPTION] ...
+
 Options:
     -b  btrfs directory to rotate
-    -c  max rotations to keep
-    -t  adds tag to snapshotname
+    -c  max rotations to keep               (default: 10)
+    -d  destination directory of snapshot
+    -q  quiet performance
+    -r  create read-only snapshot
+    -s  suffix                              (default: see below)
+    -t  adds tag to snapshotname            (default: default)
     -h  prints this help message.
+
+When using the -s flag, the suffix is added to the end of the snapshot name
+instead of a serial number. The snapshots are purged by ctime so the string
+could be arbitrary, though a sensible choice would be something like
+    -s \`date +%C%m%d-%H%m\`
 
 Example:
     * Keep 12 snapshots rotations with the tag "monthly":
-    $PROGNAME -b /data -c 12 -t monthly 
+    $PROGNAME -b /data -c 12 -t monthly
 
     * Keep 7 rotations with the tag daily":
     $PROGNAME -b /data -c 7 -t "daily"
@@ -35,7 +45,7 @@ function log {
     local level="$1"
     local message="$2"
 
-    $quiet || echo "$(date +"%F %T" ) $PROGNAME: $message" 
+    $quiet || echo "$(date +"%F %T" ) $PROGNAME: $message"
 }
 
 function die {
@@ -75,29 +85,55 @@ function rotate {
     return 0
 }
 
+# Age-based purge. Same as rotate but uses ctime sort to determine newness,
+# and only purges. No renaming.
+function purge {
+    local snaplocation="$1"
+    local volume="$2"
+    local maxrotations="$3"
+    local tag="$4"
+
+    local volumename=`basename $volume`
+
+    [ -d "$snaplocation" ] || \
+        mkdir $snaplocation || \
+        die "1" "Cannot create $snaplocation"
+
+    # Drop snaps if there are more than maxrotations:
+	for name in `ls -dc $snaplocation/$volumename-$tag-*|tail -n +$maxrotations`
+	do
+        /sbin/btrfs subvolume delete $name
+	done
+
+    return 0
+}
+
 # Makes snapshot
 function snapit {
     local snaplocation="$1"
     local volume="$2"
     local tag="$3"
+	local flags="$4"
+	local suffix="$5"
 
     local volumename=`basename $volume`
 
-
-    [ ! -e "$snaplocation/$volumename-$tag-1" ] || \
-        die "2" "$snaplocation/$volumename-$tag-1 already exists"
-    /sbin/btrfs subvolume snapshot \
-        $volume $snaplocation/$volumename-$tag-1
+    [ ! -e "$snaplocation/$volumename-$tag-$suffix" ] || \
+        die "2" "$snaplocation/$volumename-$tag-$suffix already exists"
+    /sbin/btrfs subvolume snapshot $flags \
+        $volume $snaplocation/$volumename-$tag-$suffix
 }
 
-directory="notset"
+directory=""
 count=10
 tag="default"
 
 destination=""
 destinationsubdir="./.snapshots"
+flags=""
+suffix=""
 
-while getopts "b:c:t:d:qh" opt
+while getopts "b:c:t:d:s:qrh" opt
 do
     case $opt in
         b)  directory="$OPTARG"
@@ -110,6 +146,10 @@ do
             ;;
         q)  quiet=true
             ;;
+        r)  flags="$flags -r"
+            ;;
+        s)  suffix="$OPTARG"
+            ;;
         h)  showhelp
             exit 1
             ;;
@@ -117,7 +157,7 @@ do
             exit 1
             ;;
     esac
-done  
+done
 
 [ -n "$destination" ] || destination="$directory/$destinationsubdir"
 
@@ -125,7 +165,17 @@ log "debug" "Saving snapshot to $directory"
 
 [ -n "$directory" ] || die 4 "Directory to snapshot not set."
 
-rotate "$destination" "$directory" "$count" "$tag"
+if [ ! -z "$suffix" ]
+then
 
-snapit "$destination" "$directory" "$tag"
+	purge  "$destination" "$directory" "$count" "$tag"
 
+	snapit "$destination" "$directory" "$tag" "$flags" "$suffix"
+
+else
+
+	rotate "$destination" "$directory" "$count" "$tag"
+
+	snapit "$destination" "$directory" "$tag" "$flags" 1
+
+fi
