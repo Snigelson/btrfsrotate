@@ -29,7 +29,7 @@ Options:
 When using the -s flag, the suffix is added to the end of the snapshot name
 instead of a serial number. The snapshots are purged by ctime so the string
 could be arbitrary, though a sensible choice would be something like
-    -s \`date +%C%m%d-%H%m\`
+    -s \`date +%y%m%d-%H%m\`
 
 Example:
     * Keep 12 snapshots rotations with the tag "monthly":
